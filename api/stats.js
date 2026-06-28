@@ -14,8 +14,9 @@
  * El perfil es anónimo por diseño (sin PII): se sanea antes de guardar.
  * ========================================================================== */
 
-const KV_URL = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+// Acepta los nombres de Vercel KV y los nativos de Upstash (según cómo se cree).
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const KV_ON = !!(KV_URL && KV_TOKEN);
 
 // Ejecuta una serie de comandos Redis en un solo POST (pipeline de Upstash).
