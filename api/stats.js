@@ -21,6 +21,9 @@ const SB_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 const DB_ON = !!(SB_URL && SB_KEY);
 
+// Identifica de qué web del hub viene la visita (base compartida entre proyectos).
+const APP = process.env.STATS_APP || 'asalto-estelar-game';
+
 function sbHeaders(extra) {
   return Object.assign({
     'apikey': SB_KEY,
@@ -44,7 +47,7 @@ async function fetchSummary() {
   const r = await fetch(`${SB_URL}/rest/v1/rpc/stats_summary`, {
     method: 'POST',
     headers: sbHeaders(),
-    body: '{}'
+    body: JSON.stringify({ p_app: APP })   // resumen de esta web (null = todas)
   });
   if (!r.ok) throw new Error('rpc HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
   return r.json();
@@ -57,6 +60,7 @@ function toRow(b) {
   const tier = ['high', 'low'].includes(b.tier) ? b.tier : 'unknown';
   const scr = (b.screen && b.screen.w) ? b.screen : {};
   return {
+    app: APP,
     device_type: dev,
     tier: tier,
     tier_score: Number(b.tierScore) || null,

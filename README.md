@@ -57,8 +57,9 @@ REST API (PostgREST) usando `fetch`. Guarda **una fila por visita** en la tabla
 create table if not exists visits (
   id          bigint generated always as identity primary key,
   created_at  timestamptz default now(),
-  device_type text,
-  tier        text,
+  app         text,                 -- qué web del hub (base compartida entre proyectos)
+  device_type text,                 -- phone | tablet | desktop
+  tier        text,                 -- high | low (gama alta / baja)
   tier_score  int,
   cores       int,
   memory      int,
@@ -69,19 +70,22 @@ create table if not exists visits (
   screen_h    int,
   lang        text
 );
+create index if not exists visits_app_idx on visits (app);
 
-create or replace function stats_summary()
+-- Resumen filtrable por app (p_app = null => todas las webs del hub).
+create or replace function stats_summary(p_app text default null)
 returns json language sql stable as $$
   select json_build_object(
-    'total',  (select count(*) from visits),
-    'today',  (select count(*) from visits where created_at::date = current_date),
+    'total',  (select count(*) from visits where p_app is null or app = p_app),
+    'today',  (select count(*) from visits where (p_app is null or app = p_app)
+                 and created_at::date = current_date),
     'byDevice', json_build_object(
-       'phone',   (select count(*) from visits where device_type='phone'),
-       'tablet',  (select count(*) from visits where device_type='tablet'),
-       'desktop', (select count(*) from visits where device_type='desktop')),
+       'phone',   (select count(*) from visits where (p_app is null or app = p_app) and device_type='phone'),
+       'tablet',  (select count(*) from visits where (p_app is null or app = p_app) and device_type='tablet'),
+       'desktop', (select count(*) from visits where (p_app is null or app = p_app) and device_type='desktop')),
     'byTier', json_build_object(
-       'high', (select count(*) from visits where tier='high'),
-       'low',  (select count(*) from visits where tier='low'))
+       'high', (select count(*) from visits where (p_app is null or app = p_app) and tier='high'),
+       'low',  (select count(*) from visits where (p_app is null or app = p_app) and tier='low'))
   );
 $$;
 ```
