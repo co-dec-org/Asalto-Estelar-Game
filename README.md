@@ -34,14 +34,14 @@ El umbral del clasificador (`classify`) es calibrable en `capabilities.js`.
 El perfil del dispositivo es **anónimo por diseño** (sin datos personales). El
 juego ya lo envía con `navigator.sendBeacon` a la función serverless
 `api/stats.js` (endpoint cableado en `index.html`:
-`window.CAP_STATS_ENDPOINT = "/api/stats"`).
+`window.CAP_STATS_ENDPOINT = "/api/stats.js"`).
 
 `api/stats.js` no usa dependencias npm: habla con **Vercel KV** (Upstash) por su
 REST API usando variables de entorno. Endpoints:
 
-- `POST /api/stats` — guarda contadores agregados (total, por dispositivo, por
+- `POST /api/stats.js` — guarda contadores agregados (total, por dispositivo, por
   nivel, por día) y una lista reciente capada a 500.
-- `GET /api/stats` — devuelve los agregados en JSON (base para un panel).
+- `GET /api/stats.js` — devuelve los agregados en JSON (base para un panel).
 
 **Degrada con gracia**: si KV no está configurado, no falla; solo registra el
 perfil en los logs de la función. Para activar la persistencia:
@@ -49,7 +49,7 @@ perfil en los logs de la función. Para activar la persistencia:
 1. En el dashboard de Vercel del proyecto: **Storage → Create → KV** (Upstash).
    Vercel inyecta solo las env vars `KV_REST_API_URL` y `KV_REST_API_TOKEN`
    (no van en el repo: cero secretos versionados).
-2. Redeploy. Cada visita suma a los agregados, consultables en `GET /api/stats`.
+2. Redeploy. Cada visita suma a los agregados, consultables en `GET /api/stats.js`.
 
 ## Controles
 
