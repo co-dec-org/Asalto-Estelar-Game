@@ -114,7 +114,15 @@ returns json language sql stable as $$
     'topCountries', coalesce((select json_agg(json_build_object('country', country, 'n', c)) from (
         select country, count(*) c from visits v3
         where (p_app is null or v3.app = p_app) and country is not null
-        group by country order by c desc limit 8) t2), '[]'::json)
+        group by country order by c desc limit 8) t2), '[]'::json),
+    'topRegions', coalesce((select json_agg(json_build_object('region', region, 'n', c)) from (
+        select region, count(*) c from visits v4
+        where (p_app is null or v4.app = p_app) and region is not null
+        group by region order by c desc limit 8) t4), '[]'::json),
+    'topCities', coalesce((select json_agg(json_build_object('city', city, 'region', region, 'n', c)) from (
+        select city, region, count(*) c from visits v5
+        where (p_app is null or v5.app = p_app) and city is not null
+        group by city, region order by c desc limit 12) t5), '[]'::json)
   )
   from visits
   where p_app is null or app = p_app;
@@ -127,10 +135,43 @@ Hay un panel visual en `stats.html` (ruta `/stats.html`) que lee el endpoint y
 muestra las visitas por dispositivo, nivel, orientación, skin y país. Si la BD no
 está conectada, lo indica.
 
-**Geo (aproximado por IP):** la función lee los headers que Vercel inyecta
-(`x-vercel-ip-country`, `x-vercel-ip-country-region`, `x-vercel-ip-city`,
-`x-vercel-ip-latitude/longitude`). Es geo a nivel ciudad (NO precisión GPS), sin
-pedir permiso y **sin guardar el IP crudo**.
+### Política de geolocalización (estándar del hub)
+
+Dos niveles según el tipo de usuario:
+
+- **Anónimos → geo por IP, hasta CIUDAD.** La función lee los headers que Vercel
+  inyecta (`x-vercel-ip-country`, `x-vercel-ip-country-region`,
+  `x-vercel-ip-city`, `x-vercel-ip-latitude/longitude`). Es aproximado a nivel
+  ciudad (NO precisión GPS; lat/long es el centroide de la ciudad), **sin pedir
+  permiso** y **sin guardar el IP crudo**. No se intenta comuna a este nivel.
+
+- **Usuarios registrados → GPS con consentimiento + reverse-geocoding.** Solo
+  para usuarios que se registran y dan permiso explícito: `navigator.geolocation`
+  da lat/long precisas y un servicio de reverse-geocoding las traduce a
+  comuna/dirección. Esto es dato personal: se guarda bajo el perfil del usuario
+  (no en `visits` anónima), con consentimiento y opción de borrado. Requiere una
+  capa de registro/autenticación en el proyecto que lo use.
+
+El módulo reutilizable es `geolocate.js` (reverse-geocoding con **Nominatim /
+OpenStreetMap**, gratis). Uso, tras el consentimiento del usuario y desde un
+gesto (click):
+
+```html
+<script src="geolocate.js"></script>
+<script>
+  botonUbicacion.onclick = async () => {
+    if (!Geolocate.available()) return;
+    try {
+      const loc = await Geolocate.locate({ language: 'es' });
+      // loc.comuna, loc.city, loc.region, loc.country, loc.coords {lat,lon}
+      // → guardar bajo el perfil del usuario registrado (no en visits anónima)
+    } catch (e) { /* permiso denegado o sin señal */ }
+  };
+</script>
+```
+
+Atribución requerida al usar Nominatim: mostrar “© OpenStreetMap contributors”.
+Para volumen alto, self-host de Nominatim o proxy server-side (User-Agent propio).
 
 ## Skins (temas visuales)
 

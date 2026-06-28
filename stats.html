@@ -25,7 +25,7 @@
   .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
   .card h2{font-size:13px;color:var(--cyan);margin-bottom:14px;letter-spacing:1px;text-transform:uppercase}
   .row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  .row .k{width:84px;font-size:13px;color:var(--txt)}
+  .row .k{width:104px;font-size:12px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bar{flex:1;height:16px;background:#0a2030;border-radius:8px;overflow:hidden}
   .bar > span{display:block;height:100%;border-radius:8px;transition:width .5s}
   .row .v{width:42px;text-align:right;font-size:13px;color:#fff}
@@ -86,8 +86,11 @@ function render(d) {
   const tierMax = Math.max(1, tier.high || 0, tier.low || 0);
   const oriMax = Math.max(1, ori.portrait || 0, ori.landscape || 0);
   const skins = d.bySkin || {}, countries = d.topCountries || [];
+  const regions = d.topRegions || [], cities = d.topCities || [];
   const skinMax = Math.max(1, ...Object.keys(skins).map(k => skins[k]));
   const ctryMax = Math.max(1, ...countries.map(c => c.n || 0));
+  const regMax  = Math.max(1, ...regions.map(r => r.n || 0));
+  const cityMax = Math.max(1, ...cities.map(c => c.n || 0));
 
   el('content').innerHTML = `
     <div class="total"><span class="n">${d.total || 0}</span>
@@ -117,6 +120,18 @@ function render(d) {
       <div class="card"><h2>Top países</h2>
         ${countries.length
           ? countries.map(c => bar(c.country || '??', c.n || 0, ctryMax, 'linear-gradient(90deg,#00b894,#00ff88)')).join('')
+          : '<div class="row"><span class="k">sin datos</span></div>'}
+      </div>
+    </div>
+    <div class="grid" style="margin-top:16px">
+      <div class="card"><h2>Top regiones</h2>
+        ${regions.length
+          ? regions.map(r => bar(r.region || '??', r.n || 0, regMax, 'linear-gradient(90deg,#0088ff,#00eeff)')).join('')
+          : '<div class="row"><span class="k">sin datos</span></div>'}
+      </div>
+      <div class="card"><h2>Top ciudades</h2>
+        ${cities.length
+          ? cities.map(c => bar((c.city || '??') + (c.region ? ' · ' + c.region : ''), c.n || 0, cityMax, 'linear-gradient(90deg,#ffaa00,#ffd24d)')).join('')
           : '<div class="row"><span class="k">sin datos</span></div>'}
       </div>
     </div>`;

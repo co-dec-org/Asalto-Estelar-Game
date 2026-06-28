@@ -124,7 +124,9 @@ module.exports = async (req, res) => {
         byOrientation: s.byOrientation || { portrait: 0, landscape: 0 },
         orientationByDevice: s.orientationByDevice || {},
         bySkin: s.bySkin || {},
-        topCountries: s.topCountries || []
+        topCountries: s.topCountries || [],
+        topRegions: s.topRegions || [],
+        topCities: s.topCities || []
       });
     } catch (e) {
       res.status(500).json({ ready: false, error: 'Supabase no disponible', detail: e && e.message });
