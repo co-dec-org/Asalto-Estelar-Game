@@ -59,12 +59,11 @@ function bar(label, value, max, color) {
 function render(d) {
   el('ts').textContent = new Date().toLocaleString();
 
-  if (!d || d.kv === false) {
+  if (!d || !d.ready) {
     el('content').innerHTML = `<div class="note">
-      <b>Vercel KV aún no está activado</b>, así que todavía no se persisten datos.<br>
-      Actívalo en el dashboard de Vercel → <b>Storage → Create → KV (Upstash)</b>.
-      Vercel inyecta solas las variables <code>KV_REST_API_URL</code> y
-      <code>KV_REST_API_TOKEN</code>; tras el redeploy, cada visita empezará a sumar aquí.
+      <b>La base de datos aún no está conectada</b>, así que todavía no se persisten datos.<br>
+      Conecta <b>Supabase</b> al proyecto en Vercel y ejecuta el SQL de la tabla
+      <code>visits</code> (ver README). Tras el redeploy, cada visita empezará a sumar aquí.
     </div>`;
     return;
   }

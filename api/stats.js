@@ -2,78 +2,86 @@
  * Web Video Game (hub) — api/stats.js
  * Función serverless (Vercel) para recopilar estadísticas ANÓNIMAS del auto-test.
  *
- * - POST: recibe el perfil del dispositivo (vía navigator.sendBeacon) y guarda
- *   contadores agregados + una lista reciente capada en Vercel KV (Upstash).
- * - GET:  devuelve los agregados (para un futuro panel).
+ * Backend: Supabase (Postgres) vía su REST API (PostgREST) con `fetch` nativo —
+ * sin dependencias npm. Guarda UNA FILA POR VISITA en la tabla `visits`, lo que
+ * permite análisis SQL posterior (por dispositivo, nivel, GPU, fecha, etc.).
  *
- * Sin dependencias npm: usa `fetch` nativo contra la REST API de Upstash, con
- * las variables de entorno que Vercel KV inyecta automáticamente
- * (KV_REST_API_URL, KV_REST_API_TOKEN). NO hay secretos en el repo.
+ * - POST: inserta la visita (vía navigator.sendBeacon). Anónimo: sin PII.
+ * - GET:  devuelve agregados llamando a la función SQL `stats_summary()`.
  *
- * Degrada con gracia: si KV no está configurado, no falla — solo registra en log.
- * El perfil es anónimo por diseño (sin PII): se sanea antes de guardar.
+ * Variables de entorno (las inyecta Vercel al conectar Supabase; NO van en git):
+ *   SUPABASE_URL                 (o NEXT_PUBLIC_SUPABASE_URL)
+ *   SUPABASE_SERVICE_ROLE_KEY    (o SUPABASE_SERVICE_KEY) — solo en el servidor.
+ *
+ * Esquema requerido (ejecutar una vez en el SQL Editor de Supabase): ver README.
+ * Degrada con gracia: si no hay credenciales, no falla — solo registra en log.
  * ========================================================================== */
 
-// Acepta los nombres de Vercel KV y los nativos de Upstash (según cómo se cree).
-const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-const KV_ON = !!(KV_URL && KV_TOKEN);
+const SB_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+const DB_ON = !!(SB_URL && SB_KEY);
 
-// Ejecuta una serie de comandos Redis en un solo POST (pipeline de Upstash).
-async function kvPipeline(commands) {
-  if (!KV_ON) return null;
-  const r = await fetch(`${KV_URL}/pipeline`, {
+function sbHeaders(extra) {
+  return Object.assign({
+    'apikey': SB_KEY,
+    'Authorization': `Bearer ${SB_KEY}`,
+    'Content-Type': 'application/json'
+  }, extra || {});
+}
+
+// Inserta una fila en la tabla `visits`.
+async function insertVisit(row) {
+  const r = await fetch(`${SB_URL}/rest/v1/visits`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${KV_TOKEN}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(commands)
+    headers: sbHeaders({ 'Prefer': 'return=minimal' }),
+    body: JSON.stringify(row)
   });
-  if (!r.ok) throw new Error('KV pipeline HTTP ' + r.status);
+  if (!r.ok) throw new Error('insert HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
+}
+
+// Llama a la función SQL stats_summary() y devuelve su JSON.
+async function fetchSummary() {
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/stats_summary`, {
+    method: 'POST',
+    headers: sbHeaders(),
+    body: '{}'
+  });
+  if (!r.ok) throw new Error('rpc HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
   return r.json();
 }
 
-// Deja solo campos no identificatorios y acota tipos.
-function sanitize(b) {
+// Deja solo campos no identificatorios y los mapea a columnas de la tabla.
+function toRow(b) {
   b = b || {};
   const dev = ['phone', 'tablet', 'desktop'].includes(b.deviceType) ? b.deviceType : 'unknown';
   const tier = ['high', 'low'].includes(b.tier) ? b.tier : 'unknown';
+  const scr = (b.screen && b.screen.w) ? b.screen : {};
   return {
-    deviceType: dev,
+    device_type: dev,
     tier: tier,
-    tierScore: Number(b.tierScore) || null,
+    tier_score: Number(b.tierScore) || null,
     cores: Number(b.cores) || null,
     memory: Number(b.memory) || null,
     dpr: Number(b.dpr) || null,
-    gpu: (b.gpu && typeof b.gpu.renderer === 'string') ? b.gpu.renderer.slice(0, 80) : null,
+    gpu: (b.gpu && typeof b.gpu.renderer === 'string') ? b.gpu.renderer.slice(0, 120) : null,
     net: (b.net && typeof b.net.effectiveType === 'string') ? b.net.effectiveType : null,
-    screen: (b.screen && b.screen.w) ? { w: b.screen.w, h: b.screen.h } : null,
-    lang: typeof b.lang === 'string' ? b.lang.slice(0, 12) : null,
-    ts: Date.now()
+    screen_w: Number(scr.w) || null,
+    screen_h: Number(scr.h) || null,
+    lang: typeof b.lang === 'string' ? b.lang.slice(0, 12) : null
   };
 }
 
-function today() { return new Date().toISOString().slice(0, 10); } // YYYY-MM-DD
-
 module.exports = async (req, res) => {
-  // ── POST: registrar un perfil ──────────────────────────────────────────
+  // ── POST: registrar una visita ─────────────────────────────────────────
   if (req.method === 'POST') {
     try {
       // sendBeacon suele enviar text/plain → req.body puede llegar como string.
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
-      const p = sanitize(body);
+      const row = toRow(body);
 
-      if (KV_ON) {
-        await kvPipeline([
-          ['INCR', 'stats:total'],
-          ['INCR', `stats:device:${p.deviceType}`],
-          ['INCR', `stats:tier:${p.tier}`],
-          ['INCR', `stats:day:${today()}`],
-          ['LPUSH', 'stats:recent', JSON.stringify(p)],
-          ['LTRIM', 'stats:recent', '0', '499']
-        ]);
-      } else {
-        console.log('[stats] (KV no configurado) perfil anónimo:', p);
-      }
+      if (DB_ON) await insertVisit(row);
+      else console.log('[stats] (Supabase no configurado) visita anónima:', row);
     } catch (e) {
       console.error('[stats] error al guardar:', e && e.message);
     }
@@ -84,30 +92,21 @@ module.exports = async (req, res) => {
 
   // ── GET: agregados ─────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    if (!KV_ON) {
-      res.status(200).json({ kv: false, note: 'Vercel KV no configurado. Activa KV para persistir.' });
+    if (!DB_ON) {
+      res.status(200).json({ ready: false, note: 'Supabase no configurado. Conecta la BD y crea la tabla.' });
       return;
     }
     try {
-      const out = await kvPipeline([
-        ['GET', 'stats:total'],
-        ['GET', 'stats:tier:high'],
-        ['GET', 'stats:tier:low'],
-        ['GET', 'stats:device:phone'],
-        ['GET', 'stats:device:tablet'],
-        ['GET', 'stats:device:desktop'],
-        ['GET', `stats:day:${today()}`]
-      ]);
-      const v = out.map(x => Number(x.result) || 0);
+      const s = await fetchSummary();
       res.status(200).json({
-        kv: true,
-        total: v[0],
-        byTier: { high: v[1], low: v[2] },
-        byDevice: { phone: v[3], tablet: v[4], desktop: v[5] },
-        today: v[6]
+        ready: true,
+        total: s.total || 0,
+        today: s.today || 0,
+        byDevice: s.byDevice || { phone: 0, tablet: 0, desktop: 0 },
+        byTier: s.byTier || { high: 0, low: 0 }
       });
     } catch (e) {
-      res.status(500).json({ error: 'KV no disponible', detail: e && e.message });
+      res.status(500).json({ ready: false, error: 'Supabase no disponible', detail: e && e.message });
     }
     return;
   }

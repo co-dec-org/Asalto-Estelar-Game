@@ -36,23 +36,60 @@ juego ya lo envía con `navigator.sendBeacon` a la función serverless
 `api/stats.js` (endpoint cableado en `index.html`:
 `window.CAP_STATS_ENDPOINT = "/api/stats.js"`).
 
-`api/stats.js` no usa dependencias npm: habla con **Vercel KV** (Upstash) por su
-REST API usando variables de entorno. Endpoints:
+`api/stats.js` no usa dependencias npm: habla con **Supabase (Postgres)** por su
+REST API (PostgREST) usando `fetch`. Guarda **una fila por visita** en la tabla
+`visits`, lo que permite análisis SQL posterior. Endpoints:
 
-- `POST /api/stats.js` — guarda contadores agregados (total, por dispositivo, por
-  nivel, por día) y una lista reciente capada a 500.
-- `GET /api/stats.js` — devuelve los agregados en JSON (base para un panel).
+- `POST /api/stats.js` — inserta la visita (dispositivo, nivel, puntaje, GPU,
+  núcleos, RAM, red, pantalla, idioma, fecha). Anónimo, sin PII.
+- `GET /api/stats.js` — devuelve agregados vía la función SQL `stats_summary()`.
 
-**Degrada con gracia**: si KV no está configurado, no falla; solo registra el
-perfil en los logs de la función. Para activar la persistencia:
+**Degrada con gracia**: sin credenciales no falla; solo registra en los logs.
 
-1. En el dashboard de Vercel del proyecto: **Storage → Create → KV** (Upstash).
-   Vercel inyecta solo las env vars `KV_REST_API_URL` y `KV_REST_API_TOKEN`
-   (no van en el repo: cero secretos versionados).
-2. Redeploy. Cada visita suma a los agregados, consultables en `GET /api/stats.js`.
+### Activar Supabase
 
-Hay un panel visual en `stats.html` (ruta `/stats.html`) que lee ese endpoint y
-muestra las visitas por dispositivo y por nivel. Si KV no está activo, lo indica.
+1. Conecta Supabase al proyecto en Vercel (**Storage → Marketplace → Supabase**,
+   o crea el proyecto en supabase.com y añade las env vars). Necesarias (solo en
+   el servidor, nunca en git): `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY`.
+2. En el **SQL Editor** de Supabase, ejecuta una vez:
+
+```sql
+create table if not exists visits (
+  id          bigint generated always as identity primary key,
+  created_at  timestamptz default now(),
+  device_type text,
+  tier        text,
+  tier_score  int,
+  cores       int,
+  memory      int,
+  dpr         numeric,
+  gpu         text,
+  net         text,
+  screen_w    int,
+  screen_h    int,
+  lang        text
+);
+
+create or replace function stats_summary()
+returns json language sql stable as $$
+  select json_build_object(
+    'total',  (select count(*) from visits),
+    'today',  (select count(*) from visits where created_at::date = current_date),
+    'byDevice', json_build_object(
+       'phone',   (select count(*) from visits where device_type='phone'),
+       'tablet',  (select count(*) from visits where device_type='tablet'),
+       'desktop', (select count(*) from visits where device_type='desktop')),
+    'byTier', json_build_object(
+       'high', (select count(*) from visits where tier='high'),
+       'low',  (select count(*) from visits where tier='low'))
+  );
+$$;
+```
+
+3. Redeploy. Cada visita inserta una fila; el panel y `GET /api/stats.js` los muestran.
+
+Hay un panel visual en `stats.html` (ruta `/stats.html`) que lee el endpoint y
+muestra las visitas por dispositivo y por nivel. Si la BD no está conectada, lo indica.
 
 ## Controles
 
