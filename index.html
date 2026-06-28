@@ -8,29 +8,85 @@
 body{background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;overflow:hidden;font-family:monospace}
 canvas{display:block;cursor:crosshair;border:1px solid #0ef3}
 #info{color:#0ef;font-size:12px;margin-top:6px;text-align:center;opacity:0.7}
+
+/* ── Overlay de test generativo ─────────────────────────────────────── */
+#boot{position:fixed;inset:0;background:radial-gradient(circle at 50% 30%,#021526,#000);
+  display:flex;align-items:center;justify-content:center;z-index:50;color:#cfeffff0}
+#boot .box{width:min(92vw,440px);padding:26px 22px;text-align:center}
+#boot h1{color:#00eeff;font-size:30px;letter-spacing:2px;text-shadow:0 0 18px #0ef8;margin-bottom:4px}
+#boot .tag{color:#ffd24d;font-size:12px;margin-bottom:20px;opacity:.85}
+#bsub{color:#9fd; font-size:13px;height:18px;margin-bottom:10px}
+#bar{height:8px;background:#0a2030;border:1px solid #0ef4;border-radius:6px;overflow:hidden}
+#barfill{height:100%;width:0;background:linear-gradient(90deg,#0088ff,#00eeff);transition:width .25s}
+#bpct{font-size:11px;color:#6ab;margin-top:6px}
+#bresult{margin-top:18px;font-size:13px;line-height:1.7;text-align:left;display:none}
+#bresult .row{display:flex;justify-content:space-between;border-bottom:1px solid #ffffff14;padding:3px 0}
+#bresult .k{color:#7fb}
+#bresult .v{color:#fff}
+#btier{margin-top:14px;text-align:center;font-size:15px;font-weight:bold;letter-spacing:1px}
+#bgo{display:none;margin:20px auto 0;padding:12px 34px;font-family:monospace;font-size:16px;font-weight:bold;
+  color:#001018;background:#00eeff;border:none;border-radius:8px;cursor:pointer;box-shadow:0 0 20px #0ef7}
+#bgo:hover{background:#5cf}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="info">WASD/Flechas: mover &nbsp;|&nbsp; Espacio: disparar &nbsp;|&nbsp; Móvil: toca y arrastra</div>
+
+<!-- ── Overlay: test del dispositivo (web generativa) ─────────────────── -->
+<div id="boot">
+  <div class="box">
+    <h1>STELLAR ASSAULT</h1>
+    <div class="tag">Test de dispositivo · optimización automática</div>
+    <div id="bsub">Iniciando…</div>
+    <div id="bar"><div id="barfill"></div></div>
+    <div id="bpct">0%</div>
+    <div id="bresult"></div>
+    <div id="btier"></div>
+    <button id="bgo">JUGAR</button>
+  </div>
+</div>
+
+<script src="capabilities.js"></script>
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const W = Math.min(window.innerWidth, 680);
 const H = Math.min(window.innerHeight - 60, 520);
 console.log("Stellar Assault cargado OK", W, H);
-canvas.width = W; canvas.height = H;
+
+// ── Config de calidad (la genera el auto-test; default conservador) ──────
+let Q = (window.Capabilities && Capabilities.defaultQuality())
+        || { tier:'low', label:'Capa Baja', dpr:1, glow:true, particleScale:1, stars:160, maxBullets:200 };
+
+// Escala el lienzo al devicePixelRatio del nivel: nitidez sin reescribir el
+// resto del código (todo se sigue dibujando en coordenadas lógicas W×H).
+function applyDPR() {
+  const dpr = Q.dpr || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+applyDPR();
 
 // ── Audio ──────────────────────────────────────────────────────────────
-let ac = null;
+let ac = null, masterGain = null;
 function getAC() {
-  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  if (!ac) {
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      masterGain = ac.createGain();
+      masterGain.gain.value = 0.9;          // bus maestro: 1 punto de control de volumen/mute
+      masterGain.connect(ac.destination);
+    } catch(e){}
+  }
   return ac;
 }
+function audioOut() { return masterGain || (ac && ac.destination); }
 function beep(type, f0, f1, dur, vol) {
   const a = getAC(); if (!a) return;
   const o = a.createOscillator(), g = a.createGain();
-  o.connect(g); g.connect(a.destination);
+  o.connect(g); g.connect(audioOut());
   o.type = type;
   o.frequency.setValueAtTime(f0, a.currentTime);
   o.frequency.exponentialRampToValueAtTime(f1, a.currentTime + dur);
@@ -46,7 +102,7 @@ function boom(big) {
   for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 1.5);
   const src = a.createBufferSource(), g = a.createGain(), f = a.createBiquadFilter();
   f.type = 'lowpass'; f.frequency.value = big ? 500 : 350;
-  src.buffer = buf; src.connect(f); f.connect(g); g.connect(a.destination);
+  src.buffer = buf; src.connect(f); f.connect(g); g.connect(audioOut());
   g.gain.setValueAtTime(big ? 0.9 : 0.55, a.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
   src.start();
@@ -82,16 +138,22 @@ canvas.addEventListener('click', () => { getAC()?.resume(); if (gs === 'start' |
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && (gs === 'over' || gs === 'start')) startGame(); });
 
 // ── Stars ──────────────────────────────────────────────────────────────
-const stars = Array.from({length:200}, () => ({
-  x: Math.random()*W, y: Math.random()*H,
-  r: Math.random()*1.6+0.2, sp: Math.random()*1.4+0.4
-}));
+// nº de estrellas según el nivel detectado (densidad adaptable)
+let stars = [];
+function buildStars(n) {
+  stars = Array.from({length:n}, () => ({
+    x: Math.random()*W, y: Math.random()*H,
+    r: Math.random()*1.6+0.2, sp: Math.random()*1.4+0.4
+  }));
+}
+buildStars(Q.stars || 160);
 
 // ── State ──────────────────────────────────────────────────────────────
 let gs, player, bullets, enemies, particles, powerups, score, lives, wave;
 let shootCd, wavePause, bossRef, bossHp, bossMaxHp;
 
 function startGame() {
+  getAC()?.resume();           // reanuda el audio también en arranque por teclado
   gs = 'play';
   player = { x:W/2, y:H-80, w:34, h:34, spd:5, iTimer:0, shield:false, sCd:0, pwr:0, trail:[] };
   bullets=[]; enemies=[]; particles=[]; powerups=[];
@@ -125,8 +187,12 @@ function mkEnemy(type, x, y, w) {
 }
 
 // ── Spawn helpers ──────────────────────────────────────────────────────
-function mkBullet(x,y,vx,vy,pl,col,dmg) { bullets.push({x,y,vx,vy,pl,col,dmg,alive:true}); }
+function mkBullet(x,y,vx,vy,pl,col,dmg) {
+  if (bullets.length >= (Q.maxBullets || 240)) return;   // techo de proyectiles por nivel
+  bullets.push({x,y,vx,vy,pl,col,dmg,alive:true});
+}
 function mkParticle(x,y,col,n,spd,life) {
+  n = Math.max(1, Math.round(n * (Q.particleScale || 1)));   // densidad según nivel
   for (let i=0;i<n;i++) {
     const a=Math.random()*Math.PI*2, s=Math.random()*spd+0.5;
     particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,col,life,ml:life,r:Math.random()*2.5+0.8,alive:true});
@@ -324,11 +390,20 @@ let clearTimer=0;
 function beginWaveClear() { if(gs!=='play') return; gs='clear'; clearTimer=0; }
 
 // ── Draw ───────────────────────────────────────────────────────────────
+// Cache de gradientes: crearlos cada frame es de lo más costoso del canvas.
+// Es válido reutilizarlos porque sus coordenadas se transforman con la CTM
+// al momento de pintar, no al crearlos.
+const _grad = {};
+function shipGrad(col,h){ const k='s'+col+Math.round(h); let g=_grad[k];
+  if(!g){ g=ctx.createLinearGradient(0,-h/2,0,h/2); g.addColorStop(0,col); g.addColorStop(1,'#001020'); _grad[k]=g; }
+  return g; }
+function flameGrad(){ let g=_grad.flame;
+  if(!g){ g=ctx.createLinearGradient(0,0,0,15); g.addColorStop(0,'#ff8800'); g.addColorStop(0.5,'#ffff00'); g.addColorStop(1,'transparent'); _grad.flame=g; }
+  return g; }
+
 function drawShip(x,y,w,h,col,acc,detail) {
   ctx.save(); ctx.translate(x,y);
-  const gd=ctx.createLinearGradient(0,-h/2,0,h/2);
-  gd.addColorStop(0,col); gd.addColorStop(1,'#001020');
-  ctx.fillStyle=gd;
+  ctx.fillStyle=shipGrad(col,h);
   ctx.beginPath();
   ctx.moveTo(0,-h/2); ctx.lineTo(w/2,h/2); ctx.lineTo(w/3,h/3);
   ctx.lineTo(-w/3,h/3); ctx.lineTo(-w/2,h/2); ctx.closePath();
@@ -340,9 +415,7 @@ function drawShip(x,y,w,h,col,acc,detail) {
     ctx.beginPath(); ctx.moveTo(0,-h/2+4); ctx.lineTo(w/7,0); ctx.lineTo(-w/7,0); ctx.closePath(); ctx.fill();
   }
   // engine flame
-  const fg=ctx.createLinearGradient(0,0,0,15);
-  fg.addColorStop(0,'#ff8800'); fg.addColorStop(0.5,'#ffff00'); fg.addColorStop(1,'transparent');
-  ctx.fillStyle=fg; ctx.globalAlpha=0.75+Math.random()*0.25;
+  ctx.fillStyle=flameGrad(); ctx.globalAlpha=0.75+Math.random()*0.25;
   ctx.beginPath(); ctx.moveTo(-7,h/2-4); ctx.lineTo(0,h/2+10+Math.random()*5); ctx.lineTo(7,h/2-4); ctx.fill();
   ctx.restore();
 }
@@ -434,18 +507,22 @@ function drawPlayer() {
   drawShip(p.x,p.y,p.w,p.h,col,'#00eeff',true);
 }
 
+function bulletGrad(col){ const k='b'+col; let g=_grad[k];
+  if(!g){ g=ctx.createLinearGradient(0,-7,0,7); g.addColorStop(0,'#fff'); g.addColorStop(0.3,col); g.addColorStop(1,'transparent'); _grad[k]=g; }
+  return g; }
 function drawBullets() {
+  // El glow (shadowBlur) es la operación más cara del canvas: solo en Capa Alta.
   for (const b of bullets) {
     ctx.save();
     if (b.pl) {
-      ctx.shadowColor=b.col; ctx.shadowBlur=8;
-      const g=ctx.createLinearGradient(b.x,b.y-7,b.x,b.y+7);
-      g.addColorStop(0,'#fff'); g.addColorStop(0.3,b.col); g.addColorStop(1,'transparent');
-      ctx.fillStyle=g;
-      ctx.fillRect(b.x-2,b.y-7,4,14);
-      ctx.beginPath(); ctx.arc(b.x,b.y-7,2,0,Math.PI*2); ctx.fill();
+      if (Q.glow) { ctx.shadowColor=b.col; ctx.shadowBlur=8; }
+      ctx.translate(b.x,b.y);
+      ctx.fillStyle=bulletGrad(b.col);
+      ctx.fillRect(-2,-7,4,14);
+      ctx.beginPath(); ctx.arc(0,-7,2,0,Math.PI*2); ctx.fill();
     } else {
-      ctx.fillStyle='#ff4444'; ctx.shadowColor='#ff0000'; ctx.shadowBlur=6;
+      if (Q.glow) { ctx.shadowColor='#ff0000'; ctx.shadowBlur=6; }
+      ctx.fillStyle='#ff4444';
       ctx.beginPath(); ctx.arc(b.x,b.y,4.5,0,Math.PI*2); ctx.fill();
     }
     ctx.restore();
@@ -494,6 +571,10 @@ function drawHUD() {
     ctx.textAlign='left'; ctx.fillStyle='#ffaa00'; ctx.font='12px monospace';
     ctx.fillText('POW '+'★'.repeat(player.pwr+1), 10, H-8);
   }
+  // nivel generado por el auto-test
+  ctx.textAlign='right'; ctx.font='10px monospace';
+  ctx.fillStyle = Q.tier==='high' ? '#00ff88' : '#ffaa55';
+  ctx.fillText((Q.label||'') + ' · ' + (window.STELLAR_PROFILE ? STELLAR_PROFILE.deviceType : ''), W-8, H-8);
 }
 
 // ── Screens ────────────────────────────────────────────────────────────
@@ -532,8 +613,9 @@ function drawWaveClear() {
 }
 
 // ── Loop ───────────────────────────────────────────────────────────────
-let last=0;
+let last=0, running=true;
 function loop(ts) {
+  if (!running) return;                 // pausado: pestaña oculta
   const dt=Math.min(ts-last,50); last=ts;
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#000a18'; ctx.fillRect(0,0,W,H);
@@ -562,8 +644,51 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
-gs = 'start';
-requestAnimationFrame(t=>{ last=t; requestAnimationFrame(loop); });
+// ── Pausa cuando la pestaña no está visible (ahorro de CPU/batería) ──────
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { running = false; }
+  else if (!running) { running = true; last = performance.now(); requestAnimationFrame(loop); }
+});
+
+function startLoop(){ running = true; last = performance.now(); requestAnimationFrame(loop); }
+
+// ── Web generativa: corre el auto-test, genera Q y luego arranca ─────────
+const $ = id => document.getElementById(id);
+function setProgress(p){ $('barfill').style.width = p.pct + '%'; $('bpct').textContent = p.pct + '%'; $('bsub').textContent = p.label; }
+function specRow(k,v){ return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>'; }
+function showResult(res){
+  const p = res.profile;
+  const gpu = (p.gpu && p.gpu.renderer) ? String(p.gpu.renderer).slice(0,34) : 'n/d';
+  const dev = {phone:'Teléfono', tablet:'Tablet', desktop:'Escritorio'}[p.deviceType] || p.deviceType;
+  $('bresult').innerHTML =
+      specRow('Dispositivo', dev)
+    + specRow('CPU / RAM', (p.cores||'?')+' núcleos · '+(p.memory?p.memory+' GB':'n/d'))
+    + specRow('GPU', gpu)
+    + specRow('Pantalla', p.screen.w+'×'+p.screen.h+' @'+p.dpr+'x')
+    + specRow('Red', p.net ? (p.net.effectiveType||'n/d') : 'n/d')
+    + specRow('Puntaje', res.score+'/100');
+  $('bresult').style.display = 'block';
+  $('btier').innerHTML = 'NIVEL: <span style="color:'+(res.tier==='high'?'#00ff88':'#ffaa55')+'">'+res.quality.label+'</span>';
+  $('bgo').style.display = 'block';
+}
+async function boot(){
+  gs = 'start';
+  let res;
+  try { res = await Capabilities.run(setProgress); }
+  catch(e){ console.warn('Auto-test no disponible, uso configuración por defecto', e); }
+  if (res) {
+    Q = res.quality;
+    window.STELLAR_PROFILE = res.profile;
+    Capabilities.reportStats(res.profile);      // anónimo: solo consola salvo endpoint
+    buildStars(Q.stars); applyDPR();
+    showResult(res);
+    $('bgo').onclick = () => { getAC()?.resume(); $('boot').style.display='none'; };
+  } else {
+    $('boot').style.display = 'none';
+  }
+  startLoop();   // el juego corre detrás del overlay (pantalla de inicio)
+}
+boot();
 </script>
 </body>
 </html>

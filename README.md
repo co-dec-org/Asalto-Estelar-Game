@@ -1,0 +1,55 @@
+# Stellar Assault — Asalto Estelar
+
+Shoot 'em up en **Canvas 2D + Web Audio API**, en un solo `index.html` sin
+dependencias. Forma parte del hub **Web Video Game**, cuyo objetivo es explorar
+las Web API de audio y video llevando al límite cada dispositivo sin sacrificar
+fluidez.
+
+## Web generativa (auto-test → configuración adaptada)
+
+Al cargar, la web **evalúa el dispositivo** antes de jugar (`capabilities.js`) y
+**genera** la configuración de calidad óptima:
+
+1. **Detecta el tipo de dispositivo**: `phone` / `tablet` / `desktop`.
+2. **Mide capacidad real** con micro-benchmarks (CPU + render canvas) y lee
+   señales del sistema (núcleos, RAM, GPU, DPR, red).
+3. **Clasifica en dos niveles**:
+   - **Capa Alta**: glow (shadowBlur), DPR hasta 2x, más partículas y estrellas.
+   - **Capa Baja**: sin glow, DPR 1, densidad reducida → fluidez en equipos modestos.
+4. **Adapta el juego** a esa configuración (`Q`) en tiempo de ejecución.
+
+El umbral del clasificador (`classify`) es calibrable en `capabilities.js`.
+
+## Optimizaciones de rendimiento
+
+- `shadowBlur` (lo más caro del canvas) **solo en Capa Alta**.
+- **Cache de gradientes** (naves, llamas, balas) en vez de recrearlos por frame.
+- **devicePixelRatio**: nitidez en pantallas retina sin reescribir el render.
+- **Page Visibility API**: pausa el bucle al ocultar la pestaña (ahorro de batería).
+- **Bus de audio maestro** (`GainNode`) + `resume()` también en arranque por teclado.
+- Densidad de partículas / estrellas y techo de proyectiles según el nivel.
+
+## Estadísticas anónimas (opcional)
+
+El perfil del dispositivo es **anónimo por diseño** (sin datos personales) y, por
+defecto, solo se imprime en consola. Para recopilarlo:
+
+```js
+// antes de cargar capabilities.js, o en el HTML:
+window.CAP_STATS_ENDPOINT = "/api/stats";
+```
+
+Con eso, `navigator.sendBeacon` envía el perfil a ese endpoint. Para persistirlo
+en Vercel basta una función serverless (`/api/stats.js`) que reciba el POST y lo
+guarde (KV, base de datos, etc.). Pendiente de implementar como siguiente etapa.
+
+## Controles
+
+- **Teclado**: WASD / flechas para mover, Espacio para disparar.
+- **Móvil**: arrastra para mover; disparo automático.
+
+## Local y despliegue
+
+- Local: abrir `index.html` (los scripts cargan como assets de la misma carpeta).
+- Deploy: estático en Vercel. `vercel.json` sirve `*.html` y `*.js` con
+  `@vercel/static` y usa `filesystem` antes del fallback a `index.html`.
