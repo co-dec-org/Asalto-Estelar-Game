@@ -51,6 +51,9 @@ perfil en los logs de la función. Para activar la persistencia:
    (no van en el repo: cero secretos versionados).
 2. Redeploy. Cada visita suma a los agregados, consultables en `GET /api/stats.js`.
 
+Hay un panel visual en `stats.html` (ruta `/stats.html`) que lee ese endpoint y
+muestra las visitas por dispositivo y por nivel. Si KV no está activo, lo indica.
+
 ## Controles
 
 - **Teclado**: WASD / flechas para mover, Espacio para disparar.
