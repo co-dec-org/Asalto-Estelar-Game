@@ -55,45 +55,91 @@ REST API (PostgREST) usando `fetch`. Guarda **una fila por visita** en la tabla
 
 ```sql
 create table if not exists visits (
-  id          bigint generated always as identity primary key,
-  created_at  timestamptz default now(),
-  app         text,                 -- qué web del hub (base compartida entre proyectos)
-  device_type text,                 -- phone | tablet | desktop
-  tier        text,                 -- high | low (gama alta / baja)
-  tier_score  int,
-  cores       int,
-  memory      int,
-  dpr         numeric,
-  gpu         text,
-  net         text,
-  screen_w    int,
-  screen_h    int,
-  lang        text
+  id           bigint generated always as identity primary key,
+  created_at   timestamptz default now(),
+  app          text,                -- qué web del hub (base compartida entre proyectos)
+  device_type  text,                -- phone | tablet | desktop
+  tier         text,                -- high | low (gama alta / baja)
+  orientation  text,                -- portrait | landscape
+  aspect_ratio numeric,             -- ancho/alto del viewport
+  skin         text,                -- skin/tema activo
+  country      text,                -- geo aproximado por IP (headers de Vercel)
+  region       text,
+  city         text,
+  lat          numeric,             -- lat/long APROXIMADAS por IP (no es GPS)
+  lon          numeric,
+  tier_score   int,
+  cores        int,
+  memory       int,
+  dpr          numeric,
+  gpu          text,
+  net          text,
+  screen_w     int,
+  screen_h     int,
+  lang         text
 );
 create index if not exists visits_app_idx on visits (app);
 
 -- Resumen filtrable por app (p_app = null => todas las webs del hub).
+-- Usa count(*) FILTER (...) para una sola pasada sobre la tabla.
 create or replace function stats_summary(p_app text default null)
 returns json language sql stable as $$
   select json_build_object(
-    'total',  (select count(*) from visits where p_app is null or app = p_app),
-    'today',  (select count(*) from visits where (p_app is null or app = p_app)
-                 and created_at::date = current_date),
+    'total', count(*),
+    'today', count(*) filter (where created_at::date = current_date),
     'byDevice', json_build_object(
-       'phone',   (select count(*) from visits where (p_app is null or app = p_app) and device_type='phone'),
-       'tablet',  (select count(*) from visits where (p_app is null or app = p_app) and device_type='tablet'),
-       'desktop', (select count(*) from visits where (p_app is null or app = p_app) and device_type='desktop')),
+       'phone',   count(*) filter (where device_type='phone'),
+       'tablet',  count(*) filter (where device_type='tablet'),
+       'desktop', count(*) filter (where device_type='desktop')),
     'byTier', json_build_object(
-       'high', (select count(*) from visits where (p_app is null or app = p_app) and tier='high'),
-       'low',  (select count(*) from visits where (p_app is null or app = p_app) and tier='low'))
-  );
+       'high', count(*) filter (where tier='high'),
+       'low',  count(*) filter (where tier='low')),
+    'byOrientation', json_build_object(
+       'portrait',  count(*) filter (where orientation='portrait'),
+       'landscape', count(*) filter (where orientation='landscape')),
+    'orientationByDevice', json_build_object(
+       'phone',   json_build_object(
+          'portrait',  count(*) filter (where device_type='phone' and orientation='portrait'),
+          'landscape', count(*) filter (where device_type='phone' and orientation='landscape')),
+       'tablet',  json_build_object(
+          'portrait',  count(*) filter (where device_type='tablet' and orientation='portrait'),
+          'landscape', count(*) filter (where device_type='tablet' and orientation='landscape')),
+       'desktop', json_build_object(
+          'portrait',  count(*) filter (where device_type='desktop' and orientation='portrait'),
+          'landscape', count(*) filter (where device_type='desktop' and orientation='landscape'))),
+    'bySkin', coalesce((select json_object_agg(skin, c) from (
+        select skin, count(*) c from visits v2
+        where (p_app is null or v2.app = p_app) and skin is not null
+        group by skin) t), '{}'::json),
+    'topCountries', coalesce((select json_agg(json_build_object('country', country, 'n', c)) from (
+        select country, count(*) c from visits v3
+        where (p_app is null or v3.app = p_app) and country is not null
+        group by country order by c desc limit 8) t2), '[]'::json)
+  )
+  from visits
+  where p_app is null or app = p_app;
 $$;
 ```
 
 3. Redeploy. Cada visita inserta una fila; el panel y `GET /api/stats.js` los muestran.
 
 Hay un panel visual en `stats.html` (ruta `/stats.html`) que lee el endpoint y
-muestra las visitas por dispositivo y por nivel. Si la BD no está conectada, lo indica.
+muestra las visitas por dispositivo, nivel, orientación, skin y país. Si la BD no
+está conectada, lo indica.
+
+**Geo (aproximado por IP):** la función lee los headers que Vercel inyecta
+(`x-vercel-ip-country`, `x-vercel-ip-country-region`, `x-vercel-ip-city`,
+`x-vercel-ip-latitude/longitude`). Es geo a nivel ciudad (NO precisión GPS), sin
+pedir permiso y **sin guardar el IP crudo**.
+
+## Skins (temas visuales)
+
+`skins.js` es un motor de temas reutilizable del hub: cada skin es un set de
+variables CSS que se aplican sobre `:root`. Trae base compartida **noche / día /
+neón (conceptual)**; cada proyecto puede añadir los suyos con
+`Skins.register(nombre, { label, vars })`. Por defecto sigue el
+`prefers-color-scheme` del sistema y recuerda la elección en `localStorage`. El
+skin activo se registra en cada visita (columna `skin`) y se ve en el panel.
 
 ## Controles
 

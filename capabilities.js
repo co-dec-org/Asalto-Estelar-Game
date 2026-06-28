@@ -113,6 +113,19 @@
     } catch (e) { return null; }
   }
 
+  /* ---- Orientación y viewport -------------------------------------------- */
+  function getOrientation() {
+    if (global.matchMedia) {
+      return global.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape';
+    }
+    var w = global.innerWidth || 0, h = global.innerHeight || 0;
+    return h >= w ? 'portrait' : 'landscape';
+  }
+  function aspectRatio() {
+    var w = global.innerWidth || 0, h = global.innerHeight || 0;
+    return h > 0 ? Math.round((w / h) * 100) / 100 : null;
+  }
+
   /* ---- Red ---------------------------------------------------------------- */
   function getNet() {
     var nav = nv();
@@ -210,6 +223,8 @@
       cores: nav.hardwareConcurrency || null,
       memory: nav.deviceMemory || null,
       screen: { w: (global.screen && screen.width) || null, h: (global.screen && screen.height) || null },
+      orientation: getOrientation(),
+      aspectRatio: aspectRatio(),
       gpu: gpu,
       audio: audio,
       net: net,

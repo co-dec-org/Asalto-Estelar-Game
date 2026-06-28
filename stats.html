@@ -56,6 +56,18 @@ function bar(label, value, max, color) {
     <span class="v">${value}</span></div>`;
 }
 
+// % de uso vertical (portrait) por dispositivo — responde "¿tablets en horizontal?"
+function oriDeviceRows(obd) {
+  const names = { phone: 'Phone', tablet: 'Tablet', desktop: 'Desktop' };
+  return ['phone', 'tablet', 'desktop'].map(dvc => {
+    const o = obd[dvc] || {}, p = o.portrait || 0, l = o.landscape || 0, t = p + l;
+    const pv = t ? Math.round((p / t) * 100) : 0;
+    return `<div class="row"><span class="k">${names[dvc]}</span>
+      <span class="bar"><span style="width:${pv}%;background:linear-gradient(90deg,#0088ff,#00eeff)"></span></span>
+      <span class="v" style="width:64px">${t ? pv + '% vert' : '—'}</span></div>`;
+  }).join('');
+}
+
 function render(d) {
   el('ts').textContent = new Date().toLocaleString();
 
@@ -69,8 +81,13 @@ function render(d) {
   }
 
   const dev = d.byDevice || {}, tier = d.byTier || {};
+  const ori = d.byOrientation || {}, obd = d.orientationByDevice || {};
   const devMax = Math.max(1, dev.phone || 0, dev.tablet || 0, dev.desktop || 0);
   const tierMax = Math.max(1, tier.high || 0, tier.low || 0);
+  const oriMax = Math.max(1, ori.portrait || 0, ori.landscape || 0);
+  const skins = d.bySkin || {}, countries = d.topCountries || [];
+  const skinMax = Math.max(1, ...Object.keys(skins).map(k => skins[k]));
+  const ctryMax = Math.max(1, ...countries.map(c => c.n || 0));
 
   el('content').innerHTML = `
     <div class="total"><span class="n">${d.total || 0}</span>
@@ -84,6 +101,23 @@ function render(d) {
       <div class="card"><h2>Por nivel generado</h2>
         ${bar('Capa Alta', tier.high || 0, tierMax, 'linear-gradient(90deg,#00b894,#00ff88)')}
         ${bar('Capa Baja', tier.low  || 0, tierMax, 'linear-gradient(90deg,#cc7a33,#ffaa55)')}
+      </div>
+      <div class="card"><h2>Por orientación</h2>
+        ${bar('Vertical',   ori.portrait  || 0, oriMax, 'linear-gradient(90deg,#0088ff,#00eeff)')}
+        ${bar('Horizontal', ori.landscape || 0, oriMax, 'linear-gradient(90deg,#cc7a33,#ffaa55)')}
+      </div>
+      <div class="card"><h2>Orientación × dispositivo</h2>
+        ${oriDeviceRows(obd)}
+      </div>
+      <div class="card"><h2>Por skin</h2>
+        ${Object.keys(skins).length
+          ? Object.keys(skins).map(k => bar(k, skins[k], skinMax, 'linear-gradient(90deg,#9b5cff,#ff2bd6)')).join('')
+          : '<div class="row"><span class="k">sin datos</span></div>'}
+      </div>
+      <div class="card"><h2>Top países</h2>
+        ${countries.length
+          ? countries.map(c => bar(c.country || '??', c.n || 0, ctryMax, 'linear-gradient(90deg,#00b894,#00ff88)')).join('')
+          : '<div class="row"><span class="k">sin datos</span></div>'}
       </div>
     </div>`;
 }

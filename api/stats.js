@@ -59,10 +59,14 @@ function toRow(b) {
   const dev = ['phone', 'tablet', 'desktop'].includes(b.deviceType) ? b.deviceType : 'unknown';
   const tier = ['high', 'low'].includes(b.tier) ? b.tier : 'unknown';
   const scr = (b.screen && b.screen.w) ? b.screen : {};
+  const orient = ['portrait', 'landscape'].includes(b.orientation) ? b.orientation : null;
   return {
     app: APP,
     device_type: dev,
     tier: tier,
+    orientation: orient,
+    aspect_ratio: Number(b.aspectRatio) || null,
+    skin: typeof b.skin === 'string' ? b.skin.slice(0, 24) : null,
     tier_score: Number(b.tierScore) || null,
     cores: Number(b.cores) || null,
     memory: Number(b.memory) || null,
@@ -83,6 +87,15 @@ module.exports = async (req, res) => {
       let body = req.body;
       if (typeof body === 'string') { try { body = JSON.parse(body); } catch (e) { body = {}; } }
       const row = toRow(body);
+
+      // Geo aproximado por IP — headers que Vercel inyecta (sin permiso, sin IP crudo).
+      const h = req.headers || {};
+      const dec = s => { try { return s ? decodeURIComponent(s) : null; } catch (e) { return s || null; } };
+      row.country = h['x-vercel-ip-country'] || null;
+      row.region  = dec(h['x-vercel-ip-country-region']);
+      row.city    = dec(h['x-vercel-ip-city']);
+      row.lat     = h['x-vercel-ip-latitude'] ? Number(h['x-vercel-ip-latitude']) : null;
+      row.lon     = h['x-vercel-ip-longitude'] ? Number(h['x-vercel-ip-longitude']) : null;
 
       if (DB_ON) await insertVisit(row);
       else console.log('[stats] (Supabase no configurado) visita anónima:', row);
@@ -107,7 +120,11 @@ module.exports = async (req, res) => {
         total: s.total || 0,
         today: s.today || 0,
         byDevice: s.byDevice || { phone: 0, tablet: 0, desktop: 0 },
-        byTier: s.byTier || { high: 0, low: 0 }
+        byTier: s.byTier || { high: 0, low: 0 },
+        byOrientation: s.byOrientation || { portrait: 0, landscape: 0 },
+        orientationByDevice: s.orientationByDevice || {},
+        bySkin: s.bySkin || {},
+        topCountries: s.topCountries || []
       });
     } catch (e) {
       res.status(500).json({ ready: false, error: 'Supabase no disponible', detail: e && e.message });
