@@ -61,6 +61,6 @@ perfil en los logs de la función. Para activar la persistencia:
 - Local: abrir `index.html` (los scripts cargan como assets de la misma carpeta).
   El envío de estadísticas no aplica en local (no hay `/api`); el auto-test y el
   juego funcionan igual.
-- Deploy: Vercel. `vercel.json` sirve `*.html` y `*.js` con `@vercel/static`,
-  construye `api/*.js` con `@vercel/node`, y usa `filesystem` antes del fallback
-  a `index.html`.
+- Deploy: Vercel en **zero-config**. Sirve los estáticos (`index.html`,
+  `capabilities.js`) automáticamente y auto-detecta `api/stats.js` como función
+  serverless en `/api/stats`. `vercel.json` solo activa `cleanUrls`.
